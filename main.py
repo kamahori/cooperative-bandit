@@ -1,4 +1,5 @@
 import math
+import random
 
 import numpy as np
 
@@ -6,15 +7,13 @@ import numpy as np
 class Arms:
     """Experiment environment"""
 
-    def __init__(self, n_arm=10, n_player=2, full_feedback=False, seed=0) -> None:
+    def __init__(self, n_arm=10, n_player=2, full_feedback=False) -> None:
         self.n_arm = n_arm
         self.n_player = n_player
         self.full_feedback = full_feedback
-        self.seed = seed
         self.mean_rewards = self._set_mean()
 
     def _set_mean(self):
-        np.random.seed(self.seed)
         return np.random.rand(self.n_arm)
 
     def play(self, idxs):
@@ -44,8 +43,8 @@ class DOP:
 
     def set_partition(self, partition, order) -> None:
         """set arbitrary partition and order"""
-        self.partition = partition
-        self.order = order
+        self.partition = partition.copy()
+        self.order = order.copy()
 
     def calc_i(self) -> int:
         """
@@ -85,7 +84,7 @@ class DOP:
             return -1, set()
 
         i = self.calc_i()
-        return i, self.partition[i]
+        return i, self.partition[i].copy()
 
     def is_leaf(self) -> bool:
         """
@@ -104,10 +103,10 @@ class DOP:
         last_partition = len(self.order) - 1
         for i, val in enumerate(self.order):
             if val == last_partition:
-                par_order = self.order
+                par_order = self.order.copy()
                 par_order.remove(val)
 
-                par_partition = self.partition
+                par_partition = self.partition.copy()
                 par_partition[i] = par_partition[i].union(par_partition[i + 1])
                 par_partition.pop(i + 1)
                 return par_partition, par_order
@@ -127,21 +126,14 @@ class DOP:
         last_partition = len(self.order) - 1
         for i, val in enumerate(self.order):
             if val == last_partition:
-                s_1 = self.partition[i]
-                s_2 = self.partition[i + 1]
+                s_1 = self.partition[i].copy()
+                s_2 = self.partition[i + 1].copy()
                 l_1 = list(s_1)
                 l_1 = list(map(lambda i: x[i], l_1))
                 l_2 = list(s_2)
                 l_2 = list(map(lambda i: x[i], l_2))
                 return min(l_1) - max(l_2)
         assert False
-
-    # def calc_feas(self):
-    #     """calculate the set of all feasible top n_player arms"""
-    #     pass
-    #     set_a = self.calc_a()
-    #     _, set_b = self.calc_b()
-    #     remain = self.n_player - len(set_a)
 
 
 class Agent:
@@ -154,21 +146,16 @@ class Agent:
         max_time=10000,
         full_feedback=False,
         strategy="random",
-        seed=0,
     ) -> None:
         self.n_arm = n_arm
         self.n_player = n_player
         self.max_time = max_time
         self.full_feedback = full_feedback
         self.strategy = strategy
-        self.seed = seed
-        self.arms = Arms(
-            n_arm=n_arm, n_player=n_player, full_feedback=full_feedback, seed=seed
-        )
+        self.arms = Arms(n_arm=n_arm, n_player=n_player, full_feedback=full_feedback)
         self.total_reward = 0.0
 
-        if self.full_feedback:
-            self.list_c = np.random.rand(n_arm) / n_arm
+        self.list_c = np.random.rand(n_arm) / n_arm
 
     def play(self) -> None:
         """play for max_time timesteps"""
@@ -188,7 +175,11 @@ class Agent:
                 )
                 dop = self._proposed_strategy(x, eps=eps)
                 idxs = list(dop.calc_a())
-                assert len(idxs) == self.n_player
+                if len(idxs) < self.n_player:
+                    remain = self.n_player - len(idxs)
+                    _, set_b = dop.calc_b()
+                    list_b = list(set_b)
+                    idxs.extend(random.sample(list_b, remain))
             elif self.strategy == "proposed" and not self.full_feedback:
                 raise NotImplementedError
             else:
@@ -211,12 +202,10 @@ class Agent:
     def _func_c(self, dop) -> float:
         """
         the c function
-
-        for full feedback scenario, i.i.d uniform variables on [0, 1/n_arm]
+        return i.i.d uniform variables on [0, 1/n_arm]
         """
-        if self.full_feedback:
-            dist = len(dop.order)
-            return self.list_c[dist]
+        dist = len(dop.order)
+        return self.list_c[dist]
 
     def _proposed_strategy(self, x, eps=0.001) -> DOP:
         """
@@ -235,10 +224,11 @@ class Agent:
                 tmp_dop.set_partition(partition=par_partition, order=par_order)
                 while True:
                     parents_list.append([par_partition, par_order])
-                    par_partition, par_order = tmp_dop.get_parent()
-                    tmp_dop.set_partition(partition=par_partition, order=par_order)
                     if tmp_dop.is_root():
                         break
+                    par_partition, par_order = tmp_dop.get_parent()
+                    tmp_dop.set_partition(partition=par_partition, order=par_order)
+
                 for dist, (par_partition, par_order) in enumerate(parents_list):
                     tmp_dop.set_partition(partition=par_partition, order=par_order)
                     i, set_b = tmp_dop.calc_b()
@@ -249,8 +239,8 @@ class Agent:
                         tmp_dop_2 = DOP(n_arm=self.n_arm, n_player=self.n_player)
                         l_1 = list_b[:j]
                         l_2 = list_b[j:]
-                        new_partition = par_partition
-                        new_order = par_order
+                        new_partition = par_partition.copy()
+                        new_order = par_order.copy()
                         new_partition[i] = set(l_1)
                         new_partition.insert(i + 1, set(l_2))
                         new_order.insert(i, len(par_order))
@@ -272,26 +262,37 @@ class Agent:
             for j in range(1, len(list_b) + 1):
                 l_1 = list_b[:j]
                 l_2 = list_b[j:]
-                new_partition = dop.partition
-                new_order = dop.order
+                new_partition = dop.partition.copy()
+                new_order = dop.order.copy()
                 new_partition[i] = set(l_1)
                 new_partition.insert(i + 1, set(l_2))
                 new_order.insert(i, len(dop.order))
                 tmp_dop = DOP(n_arm=self.n_arm, n_player=self.n_player)
                 tmp_dop.set_partition(partition=new_partition, order=new_order)
-
                 if tmp_dop.calc_gap(x) >= self._func_c(dop) * dop.calc_range(x):
                     dop = tmp_dop
                     break
 
-        assert False
+        return dop
 
 
 if __name__ == "__main__":
-    N_ARM = 3  # K
-    N_PLAYER = 2  # m
-    MAX_TIME = 10000  # T
-    rnd_agent = Agent(n_arm=N_ARM, n_player=N_PLAYER, max_time=MAX_TIME)
+    seed = 0
+    random.seed(seed)
+    np.random.seed(seed)
+
+    N_ARM = 15  # K
+    N_PLAYER = 3  # m
+    MAX_TIME = 100000  # T
+    strategy = "proposed"
+    # strategy = "random"
+    rnd_agent = Agent(
+        n_arm=N_ARM,
+        n_player=N_PLAYER,
+        max_time=MAX_TIME,
+        full_feedback=True,
+        strategy=strategy,
+    )
     rnd_agent.play()
     print(rnd_agent.calc_regret())
     bound = N_PLAYER * (N_ARM**5.5) * np.sqrt(MAX_TIME * np.log(MAX_TIME))

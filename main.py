@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 
 
@@ -58,7 +60,6 @@ class DOP:
             if tmp > self.n_player:
                 return i
         assert False
-        # return len(self.partition)
 
     def calc_a(self) -> set:
         """
@@ -135,6 +136,13 @@ class DOP:
                 return min(l_1) - max(l_2)
         assert False
 
+    # def calc_feas(self):
+    #     """calculate the set of all feasible top n_player arms"""
+    #     pass
+    #     set_a = self.calc_a()
+    #     _, set_b = self.calc_b()
+    #     remain = self.n_player - len(set_a)
+
 
 class Agent:
     """Player agent"""
@@ -159,21 +167,38 @@ class Agent:
         )
         self.total_reward = 0.0
 
+        if self.full_feedback:
+            self.list_c = np.random.rand(n_arm) / n_arm
+
     def play(self) -> None:
         """play for max_time timesteps"""
         self.total_reward = 0.0
+        empirical_sum = np.zeros(self.n_arm)
+        empirical_cnt = np.zeros(self.n_arm)
+        empirical_mean = np.zeros(self.n_arm)
         for cur_time in range(self.max_time):
             if self.strategy == "random":
                 idxs = np.random.randint(self.n_arm, size=self.n_player)
-            elif self.strategy == "proposed":
-                # Set x
-                dop = self._proposed_strategy(x)
+            elif self.strategy == "proposed" and self.full_feedback:
+                # full feedback scenario for the proposed algorithm
+                x = list(empirical_mean)
+                eps = 10 * math.sqrt(
+                    math.log(self.n_arm * self.n_player * self.max_time)
+                    / (cur_time + 1)
+                )
+                dop = self._proposed_strategy(x, eps=eps)
+                idxs = list(dop.calc_a())
+                assert len(idxs) == self.n_player
+            elif self.strategy == "proposed" and not self.full_feedback:
                 raise NotImplementedError
             else:
                 raise NotImplementedError
 
             if self.full_feedback:
                 reward, reward_all = self.arms.play(idxs)
+                empirical_sum += reward_all
+                empirical_cnt += 1
+                empirical_mean = empirical_sum / empirical_cnt
             else:
                 reward = self.arms.play(idxs)
 
@@ -183,12 +208,23 @@ class Agent:
         """calculate regret"""
         return self.max_time * self.arms.calc_optimum() - self.total_reward
 
-    def _func_c(self, dop, x) -> float:
-        """the c function"""
-        pass
+    def _func_c(self, dop) -> float:
+        """
+        the c function
+
+        for full feedback scenario, i.i.d uniform variables on [0, 1/n_arm]
+        """
+        if self.full_feedback:
+            dist = len(dop.order)
+            return self.list_c[dist]
 
     def _proposed_strategy(self, x, eps=0.001) -> DOP:
-        """Algorithm 1 in the paper"""
+        """
+        Algorithm 1 in the paper
+
+        input: vector x in [0, 1]^n_player
+        output: A partition which is a leaf of T_{K,m}
+        """
         dop = DOP(n_arm=self.n_arm, n_player=self.n_player)
         # initialized as ROOT
         while not dop.is_leaf():
@@ -224,7 +260,7 @@ class Agent:
 
                         v_1 = abs(
                             tmp_dop_2.calc_gap(x)
-                            - self._func_c(tmp_dop, x) * tmp_dop.calc_range(x)
+                            - self._func_c(tmp_dop) * tmp_dop.calc_range(x)
                         )
                         v_2 = (dist + 2) * 6 * eps
                         if v_1 <= v_2:
@@ -244,7 +280,7 @@ class Agent:
                 tmp_dop = DOP(n_arm=self.n_arm, n_player=self.n_player)
                 tmp_dop.set_partition(partition=new_partition, order=new_order)
 
-                if tmp_dop.calc_gap(x) >= self._func_c(dop, x) * dop.calc_range(x):
+                if tmp_dop.calc_gap(x) >= self._func_c(dop) * dop.calc_range(x):
                     dop = tmp_dop
                     break
 

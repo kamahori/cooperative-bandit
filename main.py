@@ -40,6 +40,11 @@ class DOP:
         self.partition = [set(range(n_arm))]
         self.order = list()
 
+    def set_partition(self, partition, order) -> None:
+        """set arbitrary partition and order"""
+        self.partition = partition
+        self.order = order
+
     def calc_i(self) -> int:
         """
         return the smallest integer i >= 0 such that
@@ -89,6 +94,10 @@ class DOP:
         i, set_b = self.calc_b()
         return len(set_b) == 0
 
+    def is_root(self) -> bool:
+        """return if current partition is the root"""
+        return len(self.partition) == 1 and len(self.order) == 0
+
     def get_parent(self) -> tuple[list, list]:
         """get the parent of current value"""
         last_partition = len(self.order) - 1
@@ -100,7 +109,30 @@ class DOP:
                 par_partition = self.partition
                 par_partition[i] = par_partition[i].union(par_partition[i + 1])
                 par_partition.pop(i + 1)
-                return par_order, par_partition
+                return par_partition, par_order
+        assert False
+
+    def calc_range(self, x) -> float:
+        """calculate range function based on given vector x"""
+        i, set_b = self.calc_b()
+        if i == -1:
+            assert False
+        list_b = list(set_b)
+        list_b = list(map(lambda i: x[i], list_b))
+        return max(list_b) - min(list_b)
+
+    def calc_gap(self, x) -> float:
+        """calculate gap function based on given vector x"""
+        last_partition = len(self.order) - 1
+        for i, val in enumerate(self.order):
+            if val == last_partition:
+                s_1 = self.partition[i]
+                s_2 = self.partition[i + 1]
+                l_1 = list(s_1)
+                l_1 = list(map(lambda i: x[i], l_1))
+                l_2 = list(s_2)
+                l_2 = list(map(lambda i: x[i], l_2))
+                return min(l_1) - max(l_2)
         assert False
 
 
@@ -134,7 +166,9 @@ class Agent:
             if self.strategy == "random":
                 idxs = np.random.randint(self.n_arm, size=self.n_player)
             elif self.strategy == "proposed":
-                p = set(range(self.n_arm))
+                # Set x
+                dop = self._proposed_strategy(x)
+                raise NotImplementedError
             else:
                 raise NotImplementedError
 
@@ -148,6 +182,73 @@ class Agent:
     def calc_regret(self) -> float:
         """calculate regret"""
         return self.max_time * self.arms.calc_optimum() - self.total_reward
+
+    def _func_c(self, dop, x) -> float:
+        """the c function"""
+        pass
+
+    def _proposed_strategy(self, x, eps=0.001) -> DOP:
+        """Algorithm 1 in the paper"""
+        dop = DOP(n_arm=self.n_arm, n_player=self.n_player)
+        # initialized as ROOT
+        while not dop.is_leaf():
+            if not dop.is_root():
+                parents_list = []
+                par_partition, par_order = dop.get_parent()
+                tmp_dop = DOP(n_arm=self.n_arm, n_player=self.n_player)
+                tmp_dop.set_partition(partition=par_partition, order=par_order)
+                while True:
+                    parents_list.append([par_partition, par_order])
+                    par_partition, par_order = tmp_dop.get_parent()
+                    tmp_dop.set_partition(partition=par_partition, order=par_order)
+                    if tmp_dop.is_root():
+                        break
+                for dist, (par_partition, par_order) in enumerate(parents_list):
+                    tmp_dop.set_partition(partition=par_partition, order=par_order)
+                    i, set_b = tmp_dop.calc_b()
+                    list_b = list(set_b)
+                    list_b.sort(key=lambda i: -x[i])
+                    # decreasing order based on the vector x
+                    for j in range(1, len(list_b) + 1):
+                        tmp_dop_2 = DOP(n_arm=self.n_arm, n_player=self.n_player)
+                        l_1 = list_b[:j]
+                        l_2 = list_b[j:]
+                        new_partition = par_partition
+                        new_order = par_order
+                        new_partition[i] = set(l_1)
+                        new_partition.insert(i + 1, set(l_2))
+                        new_order.insert(i, len(par_order))
+                        tmp_dop_2.set_partition(
+                            partition=new_partition, order=new_order
+                        )
+
+                        v_1 = abs(
+                            tmp_dop_2.calc_gap(x)
+                            - self._func_c(tmp_dop, x) * tmp_dop.calc_range(x)
+                        )
+                        v_2 = (dist + 2) * 6 * eps
+                        if v_1 <= v_2:
+                            return dop
+
+            i, set_b = dop.calc_b()
+            list_b = list(set_b)
+            list_b.sort(key=lambda i: -x[i])
+            for j in range(1, len(list_b) + 1):
+                l_1 = list_b[:j]
+                l_2 = list_b[j:]
+                new_partition = dop.partition
+                new_order = dop.order
+                new_partition[i] = set(l_1)
+                new_partition.insert(i + 1, set(l_2))
+                new_order.insert(i, len(dop.order))
+                tmp_dop = DOP(n_arm=self.n_arm, n_player=self.n_player)
+                tmp_dop.set_partition(partition=new_partition, order=new_order)
+
+                if tmp_dop.calc_gap(x) >= self._func_c(dop, x) * dop.calc_range(x):
+                    dop = tmp_dop
+                    break
+
+        assert False
 
 
 if __name__ == "__main__":

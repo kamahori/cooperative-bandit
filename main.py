@@ -160,9 +160,14 @@ class Agent:
     def play(self) -> None:
         """play for max_time timesteps"""
         self.total_reward = 0.0
-        empirical_sum = np.zeros(self.n_arm)
-        empirical_cnt = np.zeros(self.n_arm)
-        empirical_mean = np.zeros(self.n_arm)
+        if self.full_feedback:
+            empirical_sum = np.zeros(self.n_arm)
+            empirical_cnt = np.ones(self.n_arm)
+            empirical_mean = np.zeros(self.n_arm)
+        else:
+            empirical_sum = np.zeros([self.n_player, self.n_arm])
+            empirical_cnt = np.ones([self.n_player, self.n_arm])
+            empirical_mean = np.zeros([self.n_player, self.n_arm])
         for cur_time in range(self.max_time):
             if self.strategy == "random":
                 idxs = np.random.randint(self.n_arm, size=self.n_player)
@@ -181,7 +186,23 @@ class Agent:
                     list_b = list(set_b)
                     idxs.extend(random.sample(list_b, remain))
             elif self.strategy == "proposed" and not self.full_feedback:
-                raise NotImplementedError
+                if cur_time < (10**9) * self.n_arm * math.log(
+                    self.n_arm * self.max_time
+                ):
+                    idxs = []
+                    for i in range(self.n_player):
+                        idxs.append((i + cur_time) % self.n_player)
+                else:
+                    eps = 10000 * math.sqrt(
+                        (self.n_arm**3)
+                        * math.log(self.n_arm * self.max_time)
+                        / cur_time
+                    )
+                    idxs = []
+                    for i in range(self.n_player):
+                        x = empirical_mean[i]
+                        dop = self._proposed_strategy(x, eps=eps)
+                        idxs.append(list(dop.calc_a())[0])
             else:
                 raise NotImplementedError
 
@@ -192,6 +213,10 @@ class Agent:
                 empirical_mean = empirical_sum / empirical_cnt
             else:
                 reward = self.arms.play(idxs)
+                for i_player, i_arm in enumerate(idxs):
+                    empirical_sum[i_player][i_arm] += reward[i_player]
+                    empirical_cnt[i_player][i_arm] += 1
+                empirical_mean = empirical_sum / empirical_cnt
 
             self.total_reward += reward.sum()
 
@@ -284,14 +309,15 @@ if __name__ == "__main__":
     N_ARM = 15  # K
     N_PLAYER = 3  # m
     MAX_TIME = 100000  # T
-    strategy = "proposed"
-    # strategy = "random"
+    FULL_FEEDBACK = False
+    STRATEGY = "proposed"
+    # STRATEGY = "random"
     rnd_agent = Agent(
         n_arm=N_ARM,
         n_player=N_PLAYER,
         max_time=MAX_TIME,
-        full_feedback=True,
-        strategy=strategy,
+        full_feedback=FULL_FEEDBACK,
+        strategy=STRATEGY,
     )
     rnd_agent.play()
     print(rnd_agent.calc_regret())

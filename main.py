@@ -67,7 +67,7 @@ class DOP:
         """
         tmp = 0
         res = set()
-        for i, part in enumerate(self.partition):
+        for _, part in enumerate(self.partition):
             tmp += len(part)
             if tmp > self.n_player:
                 break
@@ -91,7 +91,7 @@ class DOP:
         return if current partition is a leaf of the T_{K,m} subtree
         TODO: condition about the order
         """
-        i, set_b = self.calc_b()
+        _, set_b = self.calc_b()
         return len(set_b) == 0
 
     def is_root(self) -> bool:
@@ -112,26 +112,26 @@ class DOP:
                 return par_partition, par_order
         assert False
 
-    def calc_range(self, x) -> float:
-        """calculate range function based on given vector x"""
+    def calc_range(self, vec_x) -> float:
+        """calculate range function based on given vector vec_x"""
         i, set_b = self.calc_b()
         if i == -1:
             assert False
         list_b = list(set_b)
-        list_b = list(map(lambda i: x[i], list_b))
+        list_b = list(map(lambda i: vec_x[i], list_b))
         return max(list_b) - min(list_b)
 
-    def calc_gap(self, x) -> float:
-        """calculate gap function based on given vector x"""
+    def calc_gap(self, vec_x) -> float:
+        """calculate gap function based on given vector vec_x"""
         last_partition = len(self.order) - 1
         for i, val in enumerate(self.order):
             if val == last_partition:
                 s_1 = self.partition[i].copy()
                 s_2 = self.partition[i + 1].copy()
                 l_1 = list(s_1)
-                l_1 = list(map(lambda i: x[i], l_1))
+                l_1 = list(map(lambda i: vec_x[i], l_1))
                 l_2 = list(s_2)
-                l_2 = list(map(lambda i: x[i], l_2))
+                l_2 = list(map(lambda i: vec_x[i], l_2))
                 return min(l_1) - max(l_2)
         assert False
 
@@ -173,12 +173,12 @@ class Agent:
                 idxs = np.random.randint(self.n_arm, size=self.n_player)
             elif self.strategy == "proposed" and self.full_feedback:
                 # full feedback scenario for the proposed algorithm
-                x = list(empirical_mean)
+                vec_x = list(empirical_mean)
                 eps = 10 * math.sqrt(
                     math.log(self.n_arm * self.n_player * self.max_time)
                     / (cur_time + 1)
                 )
-                dop = self._proposed_strategy(x, eps=eps)
+                dop = self._proposed_strategy(vec_x, eps=eps)
                 idxs = list(dop.calc_a())
                 if len(idxs) < self.n_player:
                     remain = self.n_player - len(idxs)
@@ -200,8 +200,8 @@ class Agent:
                     )
                     idxs = []
                     for i in range(self.n_player):
-                        x = empirical_mean[i]
-                        dop = self._proposed_strategy(x, eps=eps)
+                        vec_x = empirical_mean[i]
+                        dop = self._proposed_strategy(vec_x, eps=eps)
                         idxs.append(list(dop.calc_a())[0])
             else:
                 raise NotImplementedError
@@ -232,11 +232,11 @@ class Agent:
         dist = len(dop.order)
         return self.list_c[dist]
 
-    def _proposed_strategy(self, x, eps=0.001) -> DOP:
+    def _proposed_strategy(self, vec_x, eps=0.001) -> DOP:
         """
         Algorithm 1 in the paper
 
-        input: vector x in [0, 1]^n_player
+        input: vector vec_x in [0, 1]^n_player
         output: A partition which is a leaf of T_{K,m}
         """
         dop = DOP(n_arm=self.n_arm, n_player=self.n_player)
@@ -258,8 +258,8 @@ class Agent:
                     tmp_dop.set_partition(partition=par_partition, order=par_order)
                     i, set_b = tmp_dop.calc_b()
                     list_b = list(set_b)
-                    list_b.sort(key=lambda i: -x[i])
-                    # decreasing order based on the vector x
+                    list_b.sort(key=lambda i: -vec_x[i])
+                    # decreasing order based on the vector vec_x
                     for j in range(1, len(list_b) + 1):
                         tmp_dop_2 = DOP(n_arm=self.n_arm, n_player=self.n_player)
                         l_1 = list_b[:j]
@@ -274,8 +274,8 @@ class Agent:
                         )
 
                         v_1 = abs(
-                            tmp_dop_2.calc_gap(x)
-                            - self._func_c(tmp_dop) * tmp_dop.calc_range(x)
+                            tmp_dop_2.calc_gap(vec_x)
+                            - self._func_c(tmp_dop) * tmp_dop.calc_range(vec_x)
                         )
                         v_2 = (dist + 2) * 6 * eps
                         if v_1 <= v_2:
@@ -283,7 +283,7 @@ class Agent:
 
             i, set_b = dop.calc_b()
             list_b = list(set_b)
-            list_b.sort(key=lambda i: -x[i])
+            list_b.sort(key=lambda i: -vec_x[i])
             for j in range(1, len(list_b) + 1):
                 l_1 = list_b[:j]
                 l_2 = list_b[j:]
@@ -294,7 +294,7 @@ class Agent:
                 new_order.insert(i, len(dop.order))
                 tmp_dop = DOP(n_arm=self.n_arm, n_player=self.n_player)
                 tmp_dop.set_partition(partition=new_partition, order=new_order)
-                if tmp_dop.calc_gap(x) >= self._func_c(dop) * dop.calc_range(x):
+                if tmp_dop.calc_gap(vec_x) >= self._func_c(dop) * dop.calc_range(vec_x):
                     dop = tmp_dop
                     break
 
@@ -302,9 +302,9 @@ class Agent:
 
 
 if __name__ == "__main__":
-    seed = 0
-    random.seed(seed)
-    np.random.seed(seed)
+    SEED = 0
+    random.seed(SEED)
+    np.random.seed(SEED)
 
     N_ARM = 15  # K
     N_PLAYER = 3  # m

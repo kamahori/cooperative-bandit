@@ -1,3 +1,4 @@
+import argparse
 import math
 import random
 
@@ -302,16 +303,33 @@ class Agent:
 
 
 if __name__ == "__main__":
-    SEED = 0
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--seed", help="Seed value", type=int, default=0)
+    parser.add_argument("--n_arm", help="Number of arms (K)", type=int, default=15)
+    parser.add_argument("--n_player", help="Number of players (m)", type=int, default=5)
+    parser.add_argument(
+        "--max_time", help="Maximum timestep (T)", type=int, default=100000
+    )
+    parser.add_argument(
+        "--full_feedback", help="Full feedback scenario or not", action="store_true"
+    )
+    parser.add_argument(
+        "--strategy",
+        help="Algorithm",
+        choices=["proposed", "random"],
+        default="proposed",
+    )
+    args = parser.parse_args()
+
+    SEED = args.seed
     random.seed(SEED)
     np.random.seed(SEED)
 
-    N_ARM = 15  # K
-    N_PLAYER = 3  # m
-    MAX_TIME = 100000  # T
-    FULL_FEEDBACK = False
-    STRATEGY = "proposed"
-    # STRATEGY = "random"
+    N_ARM = args.n_arm  # K
+    N_PLAYER = args.n_player  # m
+    MAX_TIME = args.max_time  # T
+    FULL_FEEDBACK = args.full_feedback
+    STRATEGY = args.strategy
     rnd_agent = Agent(
         n_arm=N_ARM,
         n_player=N_PLAYER,
